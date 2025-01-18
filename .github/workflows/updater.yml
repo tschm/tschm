@@ -27,26 +27,37 @@ jobs:
             base: ""
             
             # Repository settings
-            plugin_languages_categories: all    # Include all repository categories
-            plugin_languages_analysis_timeout_repositories: 120  # Increased timeout for multiple repos
-            plugin_languages_repositories: "*"   # Analyze all repositories
-            plugin_languages_repositories_batch: 10  # Process 10 repositories at a time
+            repositories: "*"              # All repositories
+            repositories_batch: 10         # Process in batches
+            #repositories_forks: true       # Include forks
+            repositories_affiliations: owner, collaborator, organization_member
+            plugin_languages_analysis_timeout_repositories: 240  # Increased timeout further
             
             # Language analysis settings
             plugin_languages: true
             plugin_languages_indepth: true
+            plugin_languages_recent_categories: all
+            plugin_languages_recent_days: 0    # No time limit
+            plugin_languages_recent_load: 1000  # Load more commits
+            plugin_languages_sections: most-used, recently-used
+            
+            # Commit analysis
             plugin_languages_commits: true
             plugin_languages_commits_history: true
+            plugin_languages_commits_load: 1000  # Load more historical commits
+            plugin_languages_commits_recent_days: 0  # No time limit
             
             # Analysis details
             plugin_languages_details: >-
               lines,
               bytes-size,
-              commits
+              commits,
+              history
             
             # Limits and timeouts
             plugin_languages_limit: 4
-            plugin_languages_analysis_timeout: 15
+            plugin_languages_threshold: 0%      # Include all languages
+            plugin_languages_analysis_timeout: 30  # Increased per-repo timeout
             
             # Excluded languages
             plugin_languages_ignored: >-
@@ -58,7 +69,7 @@ jobs:
               cmake,
               shell,
               gnuplot
-
+    
 
         - name: Display
           uses: frieren-mage/metrics@master
