@@ -14,3 +14,4 @@
 [<img alt="❄️" src="https://raw.githubusercontent.com/tschm/tschm/main/metrics.plugin.achievements.compact.svg">](#)
 
 
+[![Thomas' GitHub stats](https://github-readme-stats.vercel.app/api?username=tschm)](https://github.com/tschm/github-readme-stats)
