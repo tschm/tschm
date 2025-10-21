@@ -1,6 +1,6 @@
 ## Hi there 👋
 
-[![committers.top badge](https://user-badge.committers.top/united_arab_emirates_private/tschm.svg?cache_bust=1)](https://user-badge.committers.top/united_arab_emirates_private/tschm)
+[![committers.top badge](https://user-badge.committers.top/uae_private/tschm.svg?cache_bust=1)](https://user-badge.committers.top/uae_private/tschm)
 
 <!--
 **tschm/tschm** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
