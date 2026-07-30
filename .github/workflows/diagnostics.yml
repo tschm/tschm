@@ -1,0 +1,43 @@
+name: diagnostics
+
+# Keeps the README's diagnostics table honest. The badges inside it are live,
+# but the set of rows is not: without this, a new project never appears and a
+# renamed or archived one leaves a broken badge behind.
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: diagnostics
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render the table
+        # The default token is scoped to this repository, which is enough: the
+        # table covers public repos only, and authenticating merely buys the
+        # larger rate limit.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/render_diagnostics.py
+
+      - name: Commit if anything moved
+        run: |
+          if git diff --quiet README.md; then
+            echo "no change"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "Refresh the diagnostics table"
+          git push
