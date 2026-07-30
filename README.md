@@ -21,7 +21,7 @@ I have released utilities such as
 
 Entire strategies are discussed in
 
-* [cs](https://github.com/tschm/cs) — my talk for Credit Suisse
+* [cs](https://github.com/tschm/cs) — the 10-line CTA: a trend-following strategy in ten lines of code, and what convex programming reveals about its Sharpe ratio, kurtosis and trading costs. Written for a talk at Credit Suisse, on a challenge from a young CEO. The engine underneath it is [TinyCTA](https://github.com/tschm/TinyCTA)
 
 In 2023 I was a visiting scholar at Stanford, working with Stephen Boyd. That is where the [cvxgrp](https://github.com/cvxgrp) work comes from: `cvxcla` above, and alongside it [simulator](https://github.com/cvxgrp/simulator) for backtests small enough to read, [cvxrisk](https://github.com/cvxgrp/cvxrisk) for risk models you can compose, and [cvxball](https://github.com/cvxgrp/cvxball) for the smallest enclosing sphere.
 
