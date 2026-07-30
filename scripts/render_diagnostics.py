@@ -29,12 +29,14 @@ from dataclasses import dataclass, field
 OWNERS = ("tschm", "jebel-quant")
 
 # Scaffolding, teaching material and one-off talks. They satisfy the "has a
-# release" rule but are not projects, so they would only pad the table.
+# release" rule but are not projects, so they would only pad the table. Add a
+# name here to drop a row; this and OWNERS are the only hand-kept lists.
 EXCLUDE = {
     "demopaper",
     "latex",
     "paper",
     "paper_template",
+    "rhiza-go",
     "tschm",
 }
 
