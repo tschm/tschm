@@ -54,9 +54,15 @@ HARVEST = (
     ("downloads", "pepy.tech"),
 )
 
-# Either a linked badge or a bare one; the linked form is tried first so that
-# its trailing target is not left behind as stray text.
-BADGE = re.compile(r"\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)")
+# A badge, linked or bare. The linked form is tried first so its target is
+# captured rather than left behind as stray text.
+LINKED_BADGE = re.compile(r"\[!\[[^\]]*\]\(([^)]+)\)\]\(([^)]+)\)")
+BARE_BADGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+
+# The percentage inside a coverage badge SVG. Its label is drawn into the image
+# rather than passed as a parameter, so the only way to shed the word
+# "coverage" is to read the number out and render it ourselves.
+COVERAGE_VALUE = re.compile(r">(\d+(?:\.\d+)?)%<")
 
 MARKER_START = "<!-- DIAGNOSTICS:START -->"
 MARKER_END = "<!-- DIAGNOSTICS:END -->"
@@ -125,22 +131,66 @@ def published_releases(owner: str, repo: str) -> int:
         page += 1
 
 
+def coverage_percentage(url: str) -> str | None:
+    """The number inside a coverage badge, e.g. "100%"."""
+    try:
+        body, _ = get(url)
+    except (urllib.error.HTTPError, urllib.error.URLError):
+        return None
+    values = COVERAGE_VALUE.findall(body.decode("utf-8", "replace"))
+    return f"{float(values[-1]):.0f}%" if values else None
+
+
 def harvest(owner: str, repo: str) -> dict[str, str]:
-    """The badges a repository advertises in its own README, as markdown."""
+    """What a repository advertises in its own README, reduced to values.
+
+    The repo is asked where its coverage and downloads live, because only it
+    knows — cvxcla publishes coverage to a custom domain and linalg ships to
+    PyPI as cvx-linalg, neither of which is derivable from the slug. But its
+    badges are relabelled here rather than reused verbatim, so a column says
+    "A+" once in its header instead of "CodeFactor" in all seventeen rows.
+    """
     try:
         body, _ = get(f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/README.md")
     except (urllib.error.HTTPError, urllib.error.URLError):
         return {}
     readme = body.decode("utf-8", "replace")
 
-    found: dict[str, str] = {}
-    for snippet in BADGE.findall(readme):
+    linked = LINKED_BADGE.findall(readme)
+    badges = [*linked, *((img, "") for img in BARE_BADGE.findall(readme) if img not in dict(linked))]
+
+    sources: dict[str, tuple[str, str]] = {}
+    for image, link in badges:
         for kind, signature in HARVEST:
-            if kind not in found and signature in snippet:
-                # A pipe would end the table cell early. None of these URLs
-                # carry one today, but the README is not ours to police.
-                found[kind] = snippet.replace("|", "%7C")
-    return found
+            if kind not in sources and signature in image:
+                sources[kind] = (image.strip(), link.strip())
+
+    cells: dict[str, str] = {}
+
+    if "quality" in sources:
+        # Rebuilt through shields, which exposes the grade on its own; the
+        # CodeFactor image itself has its name baked in.
+        cells["quality"] = badge(
+            "code quality",
+            f"codefactor/grade/github/{owner}/{repo}?label=",
+            sources["quality"][1] or f"https://www.codefactor.io/repository/github/{owner}/{repo}",
+        )
+
+    if "coverage" in sources:
+        image, link = sources["coverage"]
+        percentage = coverage_percentage(image)
+        # Unparseable means an unfamiliar badge; keep theirs rather than drop
+        # the column, even though it carries its own label.
+        cells["coverage"] = f"[{percentage}]({link})" if percentage and link else f"[![coverage]({image})]({link})"
+
+    if "downloads" in sources:
+        image, link = sources["downloads"]
+        # pepy takes its label as a parameter, so it can simply be emptied.
+        cells["downloads"] = f"[![downloads]({re.sub(r'left_text=[^&]*', 'left_text=', image)})]({link})"
+
+    # A pipe would end the table cell early. No URL here carries one today, but
+    # other people's READMEs are not ours to police.
+    return {kind: value.replace("|", "%7C") for kind, value in cells.items()}
 
 
 @dataclass
