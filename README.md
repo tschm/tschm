@@ -33,7 +33,7 @@ Jebel Quant Research offers help with data, strategies and trading. We also cont
 
 The point of both is leverage. Configuration is written once, reviewed once, and then inherited — so the time goes into the research and not into the plumbing.
 
-I have had exposure to some of the industry's most dysfunctional teams. That experience became my manifesto:
+I have had exposure to ADIA's Team Q. That experience became my manifesto:
 
 **[A Technology Vision for Quantitative Trading](https://jebel-quant.github.io/platform/vision.pdf)** — fourteen pages arguing that the industry's problems are organisational rather than technical. The handover model, in which research is written in Python and reimplemented in C++, produces diffuse accountability, dozens of reinvented wheels, and reconciliation as an organising principle; what replaces it is a single environment for research and production, a checkerboard team instead of an upstream and a downstream one, and quality at every stage instead of inspection at the end. Before any of the quant work I trained as a mechanic at AUDI, so the factory analogies come from the shop floor rather than a business book: the industry adopted Ford's assembly line, which manufacturing itself had largely abandoned by the 1980s, when Toyota's line is the better model and a professional kitchen — calm, deliberate, every station visible to every other — is better still. A chef buys the oven and does not cook from a packet. Knowing which is which is the whole of build-or-buy.
 
