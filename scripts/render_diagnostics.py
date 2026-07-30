@@ -28,6 +28,11 @@ from dataclasses import dataclass, field
 
 OWNERS = ("tschm", "jebel-quant")
 
+# Repos worth showing that we do not own, so discovery by owner would either
+# miss them or drag in the whole organisation alongside. Named individually and
+# exempt from the release rule: asking for one by hand is deliberate enough.
+INCLUDE = ("cvxgrp/cvxcla", "cvxgrp/cvxrisk")
+
 # Scaffolding, teaching material and one-off talks. They satisfy the "has a
 # release" rule but are not projects, so they would only pad the table. Add a
 # name here to drop a row; this and OWNERS are the only hand-kept lists.
@@ -152,9 +157,9 @@ class Repo:
         return f"{self.owner}/{self.name}"
 
 
-def candidates() -> list[tuple[str, str, str]]:
-    """Non-fork, unarchived, public repos of ours, as (owner, name, pushed_at)."""
-    found: list[tuple[str, str, str]] = []
+def candidates() -> list[tuple[str, str, str, bool]]:
+    """What to consider, as (owner, name, pushed_at, named_by_hand)."""
+    found: list[tuple[str, str, str, bool]] = []
     for owner in OWNERS:
         page = 1
         while True:
@@ -162,25 +167,36 @@ def candidates() -> list[tuple[str, str, str]]:
             if not body:
                 break
             found.extend(
-                (owner, repo["name"], repo["pushed_at"])
+                (owner, repo["name"], repo["pushed_at"], False)
                 for repo in body
                 if not (repo["fork"] or repo["archived"] or repo["private"])
                 and repo["name"] not in EXCLUDE
             )
             page += 1
+
+    for slug in INCLUDE:
+        owner, _, name = slug.partition("/")
+        try:
+            repo, _ = api(f"/repos/{slug}")
+        except urllib.error.HTTPError:
+            print(f"could not read {slug}; skipping", file=sys.stderr)
+            continue
+        found.append((owner, name, repo["pushed_at"], True))
+
     return found
 
 
-def measure(candidate: tuple[str, str, str]) -> Repo | None:
-    """Gather one candidate's row, or None if it has never published a release.
+def measure(candidate: tuple[str, str, str, bool]) -> Repo | None:
+    """Gather one candidate's row, or None if it does not belong in the table.
 
-    A release is the cheapest available signal that something is a project
-    rather than an experiment, and it means a new project joins the table on
-    its first tag without anyone editing this file.
+    A published release is the cheapest available signal that something is a
+    project rather than an experiment, and it means a new project joins the
+    table on its first tag without anyone editing this file. Repos named by
+    hand skip that test, so a deliberate request is never quietly dropped.
     """
-    owner, name, pushed_at = candidate
+    owner, name, pushed_at, named_by_hand = candidate
     releases = published_releases(owner, name)
-    if releases == 0:
+    if releases == 0 and not named_by_hand:
         return None
     return Repo(
         owner=owner,
