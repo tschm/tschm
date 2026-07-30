@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Regenerate the diagnostics table in README.md.
 
-Discovers the repositories worth showing, measures each one, and rewrites the
-block between the DIAGNOSTICS markers. Standard library only, so the workflow
-needs no dependencies beyond the runner's python3.
+Discovers the repositories worth showing, gathers a row for each, and rewrites
+the block between the DIAGNOSTICS markers. Standard library only, so the
+workflow needs no dependencies beyond the runner's python3.
 
-Columns fall into two kinds. Badges are live: the README ships a URL and the
-value is fetched when someone loads the page, so it is at most ten minutes
-stale regardless of when this script last ran. Plain numbers are what this
-script measured, and are only as fresh as the last run, because no badge
-service exposes a branch or release count.
+Cells come from three places. Some badges are ours to construct, because the
+shape is fixed and shields serves them live — issues, pull requests, latest
+release, last commit are at most ten minutes stale whenever anyone loads the
+page, regardless of when this script last ran. Quality, coverage and downloads
+are copied verbatim from each repository's own README, so a project decides for
+itself what it publishes and under which package name. Branch and release
+counts are plain numbers measured here, because no badge service exposes them,
+and they are therefore only as fresh as the last run.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import sys
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 OWNERS = ("tschm", "jebel-quant")
 
@@ -35,6 +38,19 @@ EXCLUDE = {
     "tschm",
 }
 
+# Badges we lift from a repository's own README, recognised by a fragment of
+# their URL. Copying beats reconstructing: linalg publishes to PyPI as
+# cvx-linalg, and its README already says so, so nothing has to infer it.
+HARVEST = (
+    ("quality", "codefactor.io"),
+    ("coverage", "coverage-badge.svg"),
+    ("downloads", "pepy.tech"),
+)
+
+# Either a linked badge or a bare one; the linked form is tried first so that
+# its trailing target is not left behind as stray text.
+BADGE = re.compile(r"\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)")
+
 MARKER_START = "<!-- DIAGNOSTICS:START -->"
 MARKER_END = "<!-- DIAGNOSTICS:END -->"
 
@@ -44,29 +60,35 @@ API = "https://api.github.com"
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
 
+def get(url: str, headers: dict[str, str] | None = None) -> tuple[bytes, dict[str, str]]:
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "tschm-diagnostics", **(headers or {})}
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.read(), dict(response.headers)
+
+
 def api(path: str) -> tuple[object, dict[str, str]]:
     """GET a GitHub API path, returning the decoded body and response headers."""
-    request = urllib.request.Request(
+    body, headers = get(
         path if path.startswith("http") else f"{API}{path}",
-        headers={
+        {
             "Accept": "application/vnd.github+json",
-            "User-Agent": "tschm-diagnostics",
             **({"Authorization": f"Bearer {TOKEN}"} if TOKEN else {}),
         },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response), dict(response.headers)
+    return json.loads(body), headers
 
 
-def count(owner: str, repo: str, collection: str) -> int:
-    """Total size of a paginated collection, without walking it.
+def count_branches(owner: str, repo: str) -> int:
+    """Number of branches, without walking the collection.
 
     Asking for one item per page makes the last page number the total, which
     turns an unbounded walk into a single request. A response with no Link
     header is either empty or a single item.
     """
     try:
-        body, headers = api(f"/repos/{owner}/{repo}/{collection}?per_page=1")
+        body, headers = api(f"/repos/{owner}/{repo}/branches?per_page=1")
     except urllib.error.HTTPError:
         return 0
     match = re.search(r'[?&]page=(\d+)>;\s*rel="last"', headers.get("Link", ""))
@@ -75,59 +97,43 @@ def count(owner: str, repo: str, collection: str) -> int:
     return len(body) if isinstance(body, list) else 0
 
 
-def codefactor_grade(owner: str, repo: str) -> str | None:
-    """The repo's CodeFactor grade, or None when it is not registered there."""
-    url = f"{SHIELDS}/codefactor/grade/github/{owner}/{repo}.json"
-    try:
-        body, _ = api(url)
-    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
-        return None
-    message = body.get("message", "") if isinstance(body, dict) else ""
-    return None if "not found" in message.lower() else message
+def published_releases(owner: str, repo: str) -> int:
+    """Count releases a visitor can see, i.e. excluding drafts.
 
-
-def coverage_url(owner: str, repo: str) -> str | None:
-    """The coverage badge rhiza publishes to Pages, when the repo publishes one."""
-    url = f"https://{owner.lower()}.github.io/{repo}/coverage-badge.svg"
-    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "tschm-diagnostics"})
-    try:
-        with urllib.request.urlopen(request, timeout=30):
-            return url
-    except (urllib.error.HTTPError, urllib.error.URLError):
-        return None
-
-
-def pypi_package(owner: str, repo: str) -> str | None:
-    """The PyPI project this repo publishes, if it demonstrably owns it.
-
-    Both halves matter. The name is read from the repo's own pyproject rather
-    than guessed from the repo name, because the two often differ — linalg
-    publishes as cvx-linalg. And PyPI must link back to this repo, because a
-    declared name is only an intention: jebel-quant/greeks declares "greeks",
-    but PyPI's greeks belongs to someone else entirely. Guessing, or trusting
-    the declaration alone, would advertise a stranger's download count as ours.
+    Drafts are visible to whoever holds push access and to nobody else, so the
+    collection size would make this script disagree with itself: run locally it
+    saw a draft-only repository as released and inflated every other count by
+    one or two, while CI — holding a token scoped to this repository — saw the
+    public truth. The public truth is what a profile README should tell.
     """
+    published, page = 0, 1
+    while True:
+        try:
+            body, _ = api(f"/repos/{owner}/{repo}/releases?per_page=100&page={page}")
+        except urllib.error.HTTPError:
+            return published
+        if not body:
+            return published
+        published += sum(1 for release in body if not release.get("draft"))
+        page += 1
+
+
+def harvest(owner: str, repo: str) -> dict[str, str]:
+    """The badges a repository advertises in its own README, as markdown."""
     try:
-        with urllib.request.urlopen(
-            f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/pyproject.toml", timeout=30
-        ) as response:
-            pyproject = response.read().decode("utf-8", "replace")
+        body, _ = get(f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/README.md")
     except (urllib.error.HTTPError, urllib.error.URLError):
-        return None
+        return {}
+    readme = body.decode("utf-8", "replace")
 
-    match = re.search(r'(?m)^\s*name\s*=\s*["\']([^"\']+)["\']', pyproject)
-    if not match:
-        return None
-    package = match.group(1)
-
-    try:
-        body, _ = api(f"https://pypi.org/pypi/{package}/json")
-    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
-        return None
-
-    info = body.get("info", {}) if isinstance(body, dict) else {}
-    urls = [info.get("home_page") or "", *(info.get("project_urls") or {}).values()]
-    return package if any(f"github.com/{owner}/{repo}".lower() in u.lower() for u in urls) else None
+    found: dict[str, str] = {}
+    for snippet in BADGE.findall(readme):
+        for kind, signature in HARVEST:
+            if kind not in found and signature in snippet:
+                # A pipe would end the table cell early. None of these URLs
+                # carry one today, but the README is not ours to police.
+                found[kind] = snippet.replace("|", "%7C")
+    return found
 
 
 @dataclass
@@ -137,9 +143,7 @@ class Repo:
     pushed_at: str
     branches: int
     releases: int
-    grade: str | None
-    coverage: str | None
-    package: str | None
+    badges: dict[str, str] = field(default_factory=dict)
 
     @property
     def slug(self) -> str:
@@ -166,33 +170,31 @@ def candidates() -> list[tuple[str, str, str]]:
 
 
 def measure(candidate: tuple[str, str, str]) -> Repo | None:
-    """Measure one candidate, or None if it has never cut a release.
+    """Gather one candidate's row, or None if it has never published a release.
 
     A release is the cheapest available signal that something is a project
     rather than an experiment, and it means a new project joins the table on
     its first tag without anyone editing this file.
     """
     owner, name, pushed_at = candidate
-    releases = count(owner, name, "releases")
+    releases = published_releases(owner, name)
     if releases == 0:
         return None
     return Repo(
         owner=owner,
         name=name,
         pushed_at=pushed_at,
-        branches=count(owner, name, "branches"),
+        branches=count_branches(owner, name),
         releases=releases,
-        grade=codefactor_grade(owner, name),
-        coverage=coverage_url(owner, name),
-        package=pypi_package(owner, name),
+        badges=harvest(owner, name),
     )
 
 
 def discover() -> list[Repo]:
-    """Every repo worth showing, measured concurrently.
+    """Every repo worth showing, gathered concurrently.
 
-    Serially this is some seventy-five round trips and several minutes, most of
-    it spent waiting on cold CodeFactor lookups, so the requests overlap.
+    Serially this is a few hundred round trips and several minutes, so they
+    overlap; the work is entirely spent waiting.
     """
     with ThreadPoolExecutor(max_workers=8) as pool:
         measured = pool.map(measure, candidates())
@@ -207,33 +209,12 @@ def badge(alt: str, shield: str, link: str) -> str:
 
 def row(repo: Repo) -> str:
     slug, home = repo.slug, f"https://github.com/{repo.slug}"
-
-    grade = (
-        badge(
-            "code quality",
-            f"codefactor/grade/github/{slug}?label=",
-            f"https://www.codefactor.io/repository/github/{slug}",
-        )
-        if repo.grade
-        else "—"
-    )
-    coverage = (
-        f"[![coverage]({repo.coverage})](https://{repo.owner.lower()}.github.io/{repo.name}/)"
-        if repo.coverage
-        else "—"
-    )
-    downloads = (
-        badge("downloads", f"pypi/dm/{repo.package}?label=", f"https://pypi.org/project/{repo.package}/")
-        if repo.package
-        else "—"
-    )
-
     return " | ".join(
         (
             f"| [{repo.name}]({home})",
-            grade,
-            coverage,
-            downloads,
+            repo.badges.get("quality", "—"),
+            repo.badges.get("coverage", "—"),
+            repo.badges.get("downloads", "—"),
             badge("open issues", f"github/issues/{slug}?label=", f"{home}/issues"),
             badge("open pull requests", f"github/issues-pr/{slug}?label=", f"{home}/pulls"),
             str(repo.branches),
