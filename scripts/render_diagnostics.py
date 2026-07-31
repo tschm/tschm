@@ -57,9 +57,14 @@ EXCLUDE = {
 # Badges we lift from a repository's own README, recognised by a fragment of
 # their URL. Copying beats reconstructing: linalg publishes to PyPI as
 # cvx-linalg, and its README already says so, so nothing has to infer it.
+# A kind may name several fragments, because a column is about the measurement
+# rather than the service that hosts it — simulator reports coverage through
+# coveralls and everything else through a self-published SVG, and both belong
+# in the coverage column. The first fragment that matches an image wins.
 HARVEST = (
     ("quality", "codefactor.io"),
     ("coverage", "coverage-badge.svg"),
+    ("coverage", "coveralls.io"),
     ("downloads", "pepy.tech"),
 )
 
@@ -141,7 +146,13 @@ def published_releases(owner: str, repo: str) -> int:
 
 
 def coverage_percentage(url: str) -> str | None:
-    """The number inside a coverage badge, e.g. "100%"."""
+    """The number inside a coverage badge, e.g. "100%".
+
+    Coveralls serves the same badge as PNG and SVG, and a README may link
+    either; only the SVG carries the number as text, so ask for that one.
+    """
+    if "coveralls.io" in url:
+        url = url.replace("badge.png", "badge.svg")
     try:
         body, _ = get(url)
     except (urllib.error.HTTPError, urllib.error.URLError):
@@ -161,7 +172,11 @@ def harvest(owner: str, repo: str) -> dict[str, str]:
     """
     try:
         body, _ = get(f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/README.md")
-    except (urllib.error.HTTPError, urllib.error.URLError):
+    except (urllib.error.HTTPError, urllib.error.URLError) as error:
+        # An unreadable README renders as three dashes, which is also what a
+        # repository that advertises nothing renders as. Say which one happened,
+        # so a throttled run is a visible failure rather than a quiet downgrade.
+        print(f"could not read {owner}/{repo} README ({error}); no badges", file=sys.stderr)
         return {}
     readme = body.decode("utf-8", "replace")
 
