@@ -279,7 +279,7 @@ def row(repo: Repo) -> str:
     slug, home = repo.slug, f"https://github.com/{repo.slug}"
     return " | ".join(
         (
-            f"| [{repo.name}]({home})",
+            f"| [{slug}]({home})",
             repo.badges.get("quality", "—"),
             repo.badges.get("coverage", "—"),
             repo.badges.get("downloads", "—"),
