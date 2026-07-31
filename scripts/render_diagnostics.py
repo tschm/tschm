@@ -31,17 +31,26 @@ OWNERS = ("tschm", "jebel-quant")
 # Repos worth showing that we do not own, so discovery by owner would either
 # miss them or drag in the whole organisation alongside. Named individually and
 # exempt from the release rule: asking for one by hand is deliberate enough.
-INCLUDE = ("cvxgrp/cvxcla", "cvxgrp/cvxrisk")
+INCLUDE = (
+    "cvxgrp/cvxcla",
+    "cvxgrp/cvxmarkowitz",
+    "cvxgrp/cvxrisk",
+    "cvxgrp/simulator",
+)
 
 # Scaffolding, teaching material and one-off talks. They satisfy the "has a
 # release" rule but are not projects, so they would only pad the table. Add a
 # name here to drop a row; this and OWNERS are the only hand-kept lists.
 EXCLUDE = {
     "demopaper",
+    "jsharpe",
     "latex",
+    "mean_variance_solvers",
     "paper",
     "paper_template",
+    "proximal",
     "rhiza-go",
+    "shrinkage",
     "tschm",
 }
 
@@ -267,7 +276,10 @@ def discover() -> list[Repo]:
     with ThreadPoolExecutor(max_workers=8) as pool:
         measured = pool.map(measure, candidates())
     found = [repo for repo in measured if repo is not None]
-    found.sort(key=lambda r: r.pushed_at, reverse=True)
+    # By name, case-insensitively, so TinyCTA sits among its owner's other
+    # repos rather than ahead of them. A row keeps its place between runs,
+    # which makes the diff of a refresh readable; recency is already a column.
+    found.sort(key=lambda r: r.slug.casefold())
     return found
 
 
